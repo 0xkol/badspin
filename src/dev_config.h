@@ -64,6 +64,15 @@ struct kernel_constants {
     } tty_struct_offsets;
 };
 
+struct rw_info;
+
+u64 samsung_kimg_to_lm(struct rw_info *rw, u64 kaddr);
+u64 pixel_kimg_to_lm(struct rw_info *rw, u64 kaddr);
+
+u64 scan_kbase(struct rw_info *rw);
+u64 noop_kbase(struct rw_info *rw);
+u64 offset_kbase(struct rw_info *rw);
+
 static struct device_config {
     char *name;
     char *model;
@@ -73,6 +82,19 @@ static struct device_config {
     u64 ram_offset;
     u64 vmemmap_start;
     u64 kzero_address;
+    /*
+     * Convert a kernel image virtual address
+     * to the linear mapping.
+     */
+    u64 (*kimg_to_lm)(struct rw_info *rw, u64 kaddr);
+    /*
+     * Return the kernel base address. Might be 0 if
+     * kimg_to_lm(rw, 0) will return the address of 
+     * the first page of the kernel. (If not sure,
+     * specify the anon_pipe_buf_ops offset and use
+     * offset_kbase() function.)
+     */
+    u64 (*find_kbase)(struct rw_info *rw);
     struct kernel_constants kconsts;
 } device_configs[] = {
     {
@@ -84,6 +106,8 @@ static struct device_config {
         .android_security_patch.month = 6,
         .kernel_version = KERNEL_VERSION(5, 10, 81),
         .ram_offset = 0x28000000UL,
+        .kimg_to_lm = samsung_kimg_to_lm,
+        .find_kbase = scan_kbase,
     },
     {
         /* G998BXXU4CVC4 */
@@ -94,6 +118,8 @@ static struct device_config {
         .android_security_patch.month = 3,
         .kernel_version = KERNEL_VERSION(5, 4, 129),
         .ram_offset = 0x0,
+        .kimg_to_lm = samsung_kimg_to_lm,
+        .find_kbase = scan_kbase,
     },
     {
         /* Oriole 12.1.0 (SP2A.220505.002, May 2022) */
@@ -103,6 +129,8 @@ static struct device_config {
         .android_security_patch.year = 2022,
         .android_security_patch.month = 5,
         .kernel_version = KERNEL_VERSION(5, 10, 66),
+        .kimg_to_lm = pixel_kimg_to_lm,
+        .find_kbase = noop_kbase,
     },
     {
         /* Oriole 13.0.0 (TP1A.220905.004, Sep 2022) */
@@ -112,6 +140,8 @@ static struct device_config {
         .android_security_patch.year = 2022,
         .android_security_patch.month = 9,
         .kernel_version = KERNEL_VERSION(5, 10, 107),
+        .kimg_to_lm = pixel_kimg_to_lm,
+        .find_kbase = noop_kbase,
     }
 };
 

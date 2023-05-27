@@ -2,7 +2,9 @@
 
 Author: Moshe Kol
 
-Privilege escalation exploit from `unstrusted_app` for Android Binder vulnerability (CVE-2022-20421). The vulnerability is patched on Android's Security Bulletin of October 2022.
+Privilege escalation exploit from `unstrusted_app` for Android Binder vulnerability (CVE-2022-20421). The vulnerability is patched on Android's Security Bulletin of October 2022. The exploit works on devices running kernel versions 5.4.x and 5.10.x, and it achieves full kernel R/W primitives. For the Google Pixel 6, it also obtains full root and SELinux bypass.
+
+You can find the full write-up [here](https://0xkol.github.io/assets/files/Racing_Against_the_Lock__Exploiting_Spinlock_UAF_in_the_Android_Kernel.pdf).
 
 ## Run from shell
 
@@ -34,8 +36,25 @@ $ make list
 3: Google Pixel 6, Android 13 (9/2022), kernel 5.10.107
 ```
 
-Full root and SELinux bypass for Pixel 6. For Samsung devices, the exploit achieves kernel R/W only.
+## Support a new device
+
+It is not difficult to adapt the exploit and support a new device.
+
+1. Make sure your new device runs on kernel version 5.4.x or 5.10.x, and that its Android's security patch level is below October 2022.
+2. Add your device properties to `dev_config.h`.
+3. Specify two function pointers:
+   * `kimg_to_lm()`: Converts a kernel image virtual pointer to the linear mapping. 
+   * `find_kbase()`: Finding the kernel base address from an `anon_pipe_buf_ops` leaked pointer.
+   
+   You may use the already provided functions for this. (If your vendor is not Samsung and you're not sure, use the same functions as for the Pixel 6.)
+4. Compile and run.
+
+If it works for you, please submit a pull request.
+
 
 ## Known issues
 
-The phone might crash on unsuccessful attempts. The exploit is unstable in the first few minutes after boot.
+* The phone might crash on unsuccessful attempts.
+* The exploit is unstable in the first few minutes after boot.
+* Only works on kernel versions 5.4.x and 5.10.x.
+* Only achieves kernel R/W on non-Pixel devices.
